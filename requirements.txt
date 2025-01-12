@@ -1,7 +1,6 @@
-requests
-beautifulsoup4
-python-telegram-bot==21.10
 Flask[async]
 Gunicorn
-
-
+python-telegram-bot==21.10
+aiohttp
+requests
+beautifulsoup4
