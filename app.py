@@ -1,3 +1,7 @@
+import telegram
+
+print(telegram.__version__)
+
 import os
 import requests
 from bs4 import BeautifulSoup
