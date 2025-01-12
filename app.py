@@ -1,12 +1,19 @@
 import telegram
 print(f"Telegram Bot API version: {telegram.__version__}")
-
 import os
 import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, ConversationHandler, filters
+from flask import Flask
+
+# Flask app for web interface
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Telegram Bot is running!"
 
 # Define bot states
 DATE = 1
@@ -104,8 +111,14 @@ def main():
 
     application.add_handler(conv_handler)
 
-    # Start the bot
-    application.run_polling()
+    # Run the bot in a separate thread
+    import threading
+    bot_thread = threading.Thread(target=application.run_polling, daemon=True)
+    bot_thread.start()
+
+    # Start the Flask web server
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
 if __name__ == '__main__':
     main()
