@@ -1,19 +1,18 @@
-import telegram
-print(f"Telegram Bot API version: {telegram.__version__}")
 import os
 import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, ConversationHandler, filters
-from flask import Flask
+from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackContext, filters
+from flask import Flask, jsonify
+import asyncio
 
 # Flask app for web interface
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Telegram Bot is running!"
+    return jsonify({"message": "Telegram Bot is running!"})
 
 # Define bot states
 DATE = 1
@@ -91,7 +90,7 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Operation cancelled. Type /start to begin again.")
     return ConversationHandler.END
 
-def main():
+async def start_bot():
     # Retrieve the bot token from the environment
     BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not BOT_TOKEN:
@@ -111,14 +110,12 @@ def main():
 
     application.add_handler(conv_handler)
 
-    # Run the bot in a separate thread
-    import threading
-    bot_thread = threading.Thread(target=application.run_polling, daemon=True)
-    bot_thread.start()
+    # Run polling
+    await application.run_polling()
 
-    # Start the Flask web server
+if __name__ == "__main__":
+    # Run Flask and Telegram bot together
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_bot())
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-if __name__ == '__main__':
-    main()
