@@ -3,7 +3,8 @@ import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, ConversationHandler
+from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext, ConversationHandler
+from telegram import filters  # Updated import
 
 # Define bot states
 DATE = 1
@@ -94,7 +95,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            DATE: [MessageHandler(Filters.text & ~Filters.command, handle_date)],
+            DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date)],  # Updated Filters
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
