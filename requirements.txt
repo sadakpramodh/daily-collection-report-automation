@@ -1,3 +1,5 @@
 pandas
 requests
 xlsxwriter
+beautifulsoup4
+python-telegram-bot
