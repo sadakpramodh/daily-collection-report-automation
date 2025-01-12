@@ -6,7 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext, ConversationHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, ConversationHandler, filters
 
 # Define bot states
 DATE = 1
@@ -46,16 +46,16 @@ def fetch_data(from_date, to_date):
         return {"error": str(e)}
 
 # Telegram bot handlers
-def start(update: Update, context: CallbackContext) -> int:
-    update.message.reply_text("Hi! Please send me a date in the format 'DD/MM/YYYY'.")
+async def start(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Hi! Please send me a date in the format 'DD/MM/YYYY'.")
     return DATE
 
-def handle_date(update: Update, context: CallbackContext) -> int:
+async def handle_date(update: Update, context: CallbackContext) -> int:
     date = update.message.text.strip()
     try:
         data = fetch_data(date, date)
         if "error" in data:
-            update.message.reply_text(f"Error: {data['error']}")
+            await update.message.reply_text(f"Error: {data['error']}")
             return ConversationHandler.END
 
         # Process data
@@ -74,14 +74,14 @@ def handle_date(update: Update, context: CallbackContext) -> int:
                 f"Total Amount: {details['totalAmount']}\n"
                 f"Owner details: {', '.join(details['owners'])}\n"
             )
-            update.message.reply_text(message)
+            await update.message.reply_text(message)
         return ConversationHandler.END
     except Exception as e:
-        update.message.reply_text(f"An error occurred: {e}")
+        await update.message.reply_text(f"An error occurred: {e}")
         return ConversationHandler.END
 
-def cancel(update: Update, context: CallbackContext) -> int:
-    update.message.reply_text("Operation cancelled. Type /start to begin again.")
+async def cancel(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Operation cancelled. Type /start to begin again.")
     return ConversationHandler.END
 
 def main():
@@ -90,8 +90,8 @@ def main():
     if not BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set!")
 
-    updater = Updater(BOT_TOKEN)
-    dp = updater.dispatcher
+    # Initialize the application
+    application = Application.builder().token(BOT_TOKEN).build()
 
     # Conversation handler
     conv_handler = ConversationHandler(
@@ -101,10 +101,11 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-    dp.add_handler(conv_handler)
 
-    updater.start_polling()
-    updater.idle()
+    application.add_handler(conv_handler)
+
+    # Start the bot
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
