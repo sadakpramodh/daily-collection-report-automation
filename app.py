@@ -1,4 +1,7 @@
 import os
+import http.server
+import socketserver
+from threading import Thread
 from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackContext, filters
 from telegram import Update
 from collections import defaultdict
@@ -81,7 +84,7 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Operation cancelled. Type /start to begin again.")
     return ConversationHandler.END
 
-def main():
+def start_bot():
     # Retrieve the bot token from the environment
     BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not BOT_TOKEN:
@@ -104,5 +107,22 @@ def main():
     # Start polling
     application.run_polling()
 
+def start_server():
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"Background worker is running.")
+
+    port = int(os.environ.get("PORT", 8080))
+    with socketserver.TCPServer(("", port), Handler) as httpd:
+        print(f"Serving HTTP on port {port}")
+        httpd.serve_forever()
+
 if __name__ == "__main__":
-    main()
+    # Start the HTTP server in a separate thread
+    Thread(target=start_server, daemon=True).start()
+
+    # Start the Telegram bot
+    start_bot()
