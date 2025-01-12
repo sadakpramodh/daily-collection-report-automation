@@ -1,6 +1,3 @@
-Flask[async]
-Gunicorn
 python-telegram-bot==21.10
-uvicorn
 requests
 beautifulsoup4
