@@ -1,15 +1,9 @@
-import asyncio 
-
 import os
+from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackContext, filters
+from telegram import Update
+from collections import defaultdict
 import requests
 from bs4 import BeautifulSoup
-from collections import defaultdict
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackContext, filters
-from flask import Flask, request, jsonify
-
-# Flask app for webhook
-app = Flask(__name__)
 
 # Define bot states
 DATE = 1
@@ -87,36 +81,28 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Operation cancelled. Type /start to begin again.")
     return ConversationHandler.END
 
-# Initialize the bot
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set!")
+def main():
+    # Retrieve the bot token from the environment
+    BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not BOT_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set!")
 
-application = Application.builder().token(BOT_TOKEN).build()
+    # Initialize the application
+    application = Application.builder().token(BOT_TOKEN).build()
 
-# Conversation handler
-conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start)],
-    states={
-        DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-)
-application.add_handler(conv_handler)
+    # Conversation handler
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
 
-@app.route("/")
-def home():
-    return jsonify({"message": "Telegram Bot is running!"})
+    application.add_handler(conv_handler)
 
-@app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
-async def webhook():
-    """Handle incoming Telegram updates."""
-    update = Update.de_json(await request.get_json(), application.bot)
-    await application.process_update(update)
-    return "OK", 200
-    
+    # Start polling
+    application.run_polling()
+
 if __name__ == "__main__":
-    # Set the webhook
-    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook/{BOT_TOKEN}"
-    asyncio.run(application.bot.set_webhook(webhook_url))
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    main()
