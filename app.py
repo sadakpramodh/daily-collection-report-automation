@@ -1,14 +1,12 @@
 import telegram
-
-print(telegram.__version__)
+print(f"Telegram Bot API version: {telegram.__version__}")
 
 import os
 import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext, ConversationHandler
-from telegram import filters  # Updated import
+from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext, ConversationHandler, filters
 
 # Define bot states
 DATE = 1
@@ -99,7 +97,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date)],  # Updated Filters
+            DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
