@@ -111,10 +111,10 @@ def home():
 @app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
 async def webhook():
     """Handle incoming Telegram updates."""
-    update = Update.de_json(request.get_json(), application.bot)
+    update = Update.de_json(await request.get_json(), application.bot)
     await application.process_update(update)
     return "OK", 200
-
+    
 if __name__ == "__main__":
     # Set the webhook
     webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook/{BOT_TOKEN}"
