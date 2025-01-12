@@ -1,6 +1,6 @@
 Flask[async]
 Gunicorn
 python-telegram-bot==21.10
-aiohttp
+uvicorn
 requests
 beautifulsoup4
