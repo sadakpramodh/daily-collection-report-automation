@@ -1,21 +1,45 @@
+# app.py
 from flask import Flask, render_template_string, request, jsonify
 import requests
 from bs4 import BeautifulSoup
 from collections import defaultdict
 import datetime
 import os
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
 # Function to fetch data from municipal website
 def fetch_data(from_date, to_date):
     try:
+        logger.info(f"Fetching data for date range: {from_date} to {to_date}")
         session = requests.Session()
         url = "https://tirupati.emunicipal.ap.gov.in/ptis/report/dailyCollection"
-        response = session.get(url, timeout=10)
+        
+        # First request to get CSRF token
+        logger.info("Making initial request to get CSRF token")
+        response = session.get(url, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
-        csrf_token = soup.find('meta', {'name': '_csrf'})['content']
-        csrf_header = soup.find('meta', {'name': '_csrf_header'})['content']
+        
+        csrf_token = soup.find('meta', {'name': '_csrf'})
+        if not csrf_token:
+            logger.error("CSRF token not found in response")
+            return {"error": "CSRF token not found"}
+            
+        csrf_token = csrf_token['content']
+        
+        csrf_header = soup.find('meta', {'name': '_csrf_header'})
+        if not csrf_header:
+            logger.error("CSRF header not found in response")
+            return {"error": "CSRF header not found"}
+            
+        csrf_header = csrf_header['content']
+        
+        logger.info(f"CSRF token obtained: {csrf_token[:10]}...")
 
         headers = {
             "accept": "*/*",
@@ -33,27 +57,61 @@ def fetch_data(from_date, to_date):
             "revenueWard": "Revenue Ward No  18"
         }
 
-        response = session.post(url, headers=headers, data=data, timeout=10)
+        logger.info("Making POST request to fetch collection data")
+        response = session.post(url, headers=headers, data=data, timeout=15)
+        
+        logger.info(f"Response status code: {response.status_code}")
+        
         if response.status_code == 200:
-            return response.json()
+            try:
+                result = response.json()
+                logger.info(f"Successfully fetched data. Items: {len(result) if isinstance(result, list) else 'Not a list'}")
+                return result
+            except Exception as e:
+                logger.error(f"Error parsing JSON response: {str(e)}")
+                return {"error": f"Failed to parse response: {str(e)}"}
         else:
+            logger.error(f"Request failed with status code: {response.status_code}")
             return {"error": f"Failed to fetch data: {response.status_code}"}
+    except requests.exceptions.Timeout:
+        logger.error("Request timed out")
+        return {"error": "Request timed out. The server is taking too long to respond."}
+    except requests.exceptions.ConnectionError:
+        logger.error("Connection error")
+        return {"error": "Connection error. Unable to connect to the municipal website."}
     except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
         return {"error": str(e)}
 
 # Process data for display
 def process_data(data):
-    if "error" in data:
+    if isinstance(data, dict) and "error" in data:
+        logger.error(f"Error in data: {data['error']}")
         return {"error": data["error"]}
     
-    grouped_data = defaultdict(lambda: {"count": 0, "totalAmount": 0, "owners": []})
-    for entry in data:
-        ward = entry['secretariatWard']
-        grouped_data[ward]['count'] += 1
-        grouped_data[ward]['totalAmount'] += entry['totalAmount']
-        grouped_data[ward]['owners'].append(f"{entry['consumerName']} ({entry['consumerCode']})")
+    if not isinstance(data, list):
+        logger.error(f"Unexpected data format: {type(data)}")
+        return {"error": "Unexpected data format received from server"}
     
-    return dict(grouped_data)
+    if not data:
+        logger.info("No data found for the selected date")
+        return {}
+    
+    try:
+        grouped_data = defaultdict(lambda: {"count": 0, "totalAmount": 0, "owners": []})
+        for entry in data:
+            ward = entry.get('secretariatWard', 'Unknown')
+            grouped_data[ward]['count'] += 1
+            grouped_data[ward]['totalAmount'] += entry.get('totalAmount', 0)
+            consumer_name = entry.get('consumerName', 'Unknown')
+            consumer_code = entry.get('consumerCode', 'Unknown')
+            grouped_data[ward]['owners'].append(f"{consumer_name} ({consumer_code})")
+        
+        logger.info(f"Processed data into {len(grouped_data)} groups")
+        return dict(grouped_data)
+    except Exception as e:
+        logger.error(f"Error processing data: {str(e)}")
+        return {"error": f"Error processing data: {str(e)}"}
 
 # Route for main page
 @app.route('/')
@@ -66,6 +124,7 @@ def index():
         date_str = date.strftime('%d/%m/%Y')
         date_options.append(date_str)
     
+    logger.info("Rendering index page")
     return render_template_string(HTML_TEMPLATE, date_options=date_options)
 
 # API endpoint to fetch data
@@ -73,11 +132,18 @@ def index():
 def get_data():
     selected_date = request.form.get('date')
     if not selected_date:
+        logger.warning("No date provided in request")
         return jsonify({"error": "Date is required"})
     
+    logger.info(f"Fetching data for date: {selected_date}")
     data = fetch_data(selected_date, selected_date)
     processed_data = process_data(data)
     return jsonify(processed_data)
+
+# Health check endpoint for Render
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "healthy"})
 
 # HTML template with embedded CSS and JavaScript
 HTML_TEMPLATE = '''
@@ -163,6 +229,10 @@ HTML_TEMPLATE = '''
         .results-container {
             margin-top: 30px;
         }
+        .owner-cell {
+            max-height: 200px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -178,7 +248,7 @@ HTML_TEMPLATE = '''
             </select>
         </div>
         <button id="fetch-btn">Fetch Report</button>
-        <div id="loading" class="loading">Loading data...</div>
+        <div id="loading" class="loading">Loading data... This may take a few moments.</div>
         <div id="error" class="error"></div>
         <div id="results" class="results-container"></div>
     </div>
@@ -202,9 +272,15 @@ HTML_TEMPLATE = '''
 
             fetch('/fetch-data', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                timeout: 60000 // 60 second timeout
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok: ' + response.status);
+                }
+                return response.json();
+            })
             .then(data => {
                 document.getElementById('loading').style.display = 'none';
                 
@@ -218,6 +294,7 @@ HTML_TEMPLATE = '''
             .catch(error => {
                 document.getElementById('loading').style.display = 'none';
                 showError('An error occurred: ' + error.message);
+                console.error('Error:', error);
             });
         });
 
@@ -254,10 +331,10 @@ HTML_TEMPLATE = '''
                 const details = data[ward];
                 html += `
                     <tr>
-                        <td>${ward}</td>
+                        <td>${ward || 'Unknown'}</td>
                         <td>${details.count}</td>
                         <td>₹${details.totalAmount.toFixed(2)}</td>
-                        <td>${details.owners.join('<br>')}</td>
+                        <td class="owner-cell">${details.owners.join('<br>')}</td>
                     </tr>
                 `;
             }
@@ -275,5 +352,7 @@ HTML_TEMPLATE = '''
 '''
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    # Get port from environment variable (Render sets this)
+    port = int(os.environ.get("PORT", 10000))
+    # Bind to 0.0.0.0 to make the app accessible externally
+    app.run(host="0.0.0.0", port=port)
