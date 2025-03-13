@@ -1,17 +1,13 @@
-import os
-import http.server
-import socketserver
-from threading import Thread
-from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackContext, filters
-from telegram import Update
-from collections import defaultdict
+from flask import Flask, render_template_string, request, jsonify
 import requests
 from bs4 import BeautifulSoup
+from collections import defaultdict
+import datetime
+import os
 
-# Define bot states
-DATE = 1
+app = Flask(__name__)
 
-# Function to fetch data
+# Function to fetch data from municipal website
 def fetch_data(from_date, to_date):
     try:
         session = requests.Session()
@@ -45,84 +41,239 @@ def fetch_data(from_date, to_date):
     except Exception as e:
         return {"error": str(e)}
 
-# Telegram bot handlers
-async def start(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Hi! Please send me a date in the format 'DD/MM/YYYY'.")
-    return DATE
+# Process data for display
+def process_data(data):
+    if "error" in data:
+        return {"error": data["error"]}
+    
+    grouped_data = defaultdict(lambda: {"count": 0, "totalAmount": 0, "owners": []})
+    for entry in data:
+        ward = entry['secretariatWard']
+        grouped_data[ward]['count'] += 1
+        grouped_data[ward]['totalAmount'] += entry['totalAmount']
+        grouped_data[ward]['owners'].append(f"{entry['consumerName']} ({entry['consumerCode']})")
+    
+    return dict(grouped_data)
 
-async def handle_date(update: Update, context: CallbackContext) -> int:
-    date = update.message.text.strip()
-    try:
-        data = fetch_data(date, date)
-        if "error" in data:
-            await update.message.reply_text(f"Error: {data['error']}")
-            return ConversationHandler.END
+# Route for main page
+@app.route('/')
+def index():
+    # Generate date options for the last 30 days
+    today = datetime.datetime.now()
+    date_options = []
+    for i in range(30):
+        date = today - datetime.timedelta(days=i)
+        date_str = date.strftime('%d/%m/%Y')
+        date_options.append(date_str)
+    
+    return render_template_string(HTML_TEMPLATE, date_options=date_options)
 
-        # Process data
-        grouped_data = defaultdict(lambda: {"count": 0, "totalAmount": 0, "owners": []})
-        for entry in data:
-            ward = entry['secretariatWard']
-            grouped_data[ward]['count'] += 1
-            grouped_data[ward]['totalAmount'] += entry['totalAmount']
-            grouped_data[ward]['owners'].append(f"{entry['consumerName']} ({entry['consumerCode']})")
+# API endpoint to fetch data
+@app.route('/fetch-data', methods=['POST'])
+def get_data():
+    selected_date = request.form.get('date')
+    if not selected_date:
+        return jsonify({"error": "Date is required"})
+    
+    data = fetch_data(selected_date, selected_date)
+    processed_data = process_data(data)
+    return jsonify(processed_data)
 
-        # Send results
-        for ward, details in grouped_data.items():
-            message = (
-                f"Secretariat: {ward}\n"
-                f"No of bills: {details['count']}\n"
-                f"Total Amount: {details['totalAmount']}\n"
-                f"Owner details: {', '.join(details['owners'])}\n"
-            )
-            await update.message.reply_text(message)
-        return ConversationHandler.END
-    except Exception as e:
-        await update.message.reply_text(f"An error occurred: {e}")
-        return ConversationHandler.END
+# HTML template with embedded CSS and JavaScript
+HTML_TEMPLATE = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Daily Collection Report</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+        .error {
+            color: red;
+            padding: 10px;
+            background-color: #ffebee;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: none;
+        }
+        .results-container {
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Daily Collection Report</h1>
+        <div class="form-group">
+            <label for="date-select">Select Date:</label>
+            <select id="date-select">
+                <option value="">-- Select a date --</option>
+                {% for date in date_options %}
+                <option value="{{ date }}">{{ date }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button id="fetch-btn">Fetch Report</button>
+        <div id="loading" class="loading">Loading data...</div>
+        <div id="error" class="error"></div>
+        <div id="results" class="results-container"></div>
+    </div>
 
-async def cancel(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Operation cancelled. Type /start to begin again.")
-    return ConversationHandler.END
+    <script>
+        document.getElementById('fetch-btn').addEventListener('click', function() {
+            const selectedDate = document.getElementById('date-select').value;
+            if (!selectedDate) {
+                showError('Please select a date');
+                return;
+            }
 
-def start_bot():
-    # Retrieve the bot token from the environment
-    BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not BOT_TOKEN:
-        raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set!")
+            // Show loading indicator
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('results').innerHTML = '';
 
-    # Initialize the application
-    application = Application.builder().token(BOT_TOKEN).build()
+            // Fetch data
+            const formData = new FormData();
+            formData.append('date', selectedDate);
 
-    # Conversation handler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
+            fetch('/fetch-data', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
 
-    application.add_handler(conv_handler)
+                displayResults(data, selectedDate);
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                showError('An error occurred: ' + error.message);
+            });
+        });
 
-    # Start polling
-    application.run_polling()
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
 
-def start_server():
-    class Handler(http.server.SimpleHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header("Content-type", "text/html")
-            self.end_headers()
-            self.wfile.write(b"Background worker is running.")
+        function displayResults(data, date) {
+            const resultsDiv = document.getElementById('results');
+            let html = `<h2>Collection Report for ${date}</h2>`;
+            
+            if (Object.keys(data).length === 0) {
+                html += '<p>No data found for this date.</p>';
+                resultsDiv.innerHTML = html;
+                return;
+            }
 
-    port = int(os.environ.get("PORT", 8080))
-    with socketserver.TCPServer(("", port), Handler) as httpd:
-        print(f"Serving HTTP on port {port}")
-        httpd.serve_forever()
+            html += `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Secretariat Ward</th>
+                            <th>Number of Bills</th>
+                            <th>Total Amount</th>
+                            <th>Owner Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            for (const ward in data) {
+                const details = data[ward];
+                html += `
+                    <tr>
+                        <td>${ward}</td>
+                        <td>${details.count}</td>
+                        <td>₹${details.totalAmount.toFixed(2)}</td>
+                        <td>${details.owners.join('<br>')}</td>
+                    </tr>
+                `;
+            }
+
+            html += `
+                    </tbody>
+                </table>
+            `;
+
+            resultsDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
+'''
 
 if __name__ == "__main__":
-    # Start the HTTP server in a separate thread
-    Thread(target=start_server, daemon=True).start()
-
-    # Start the Telegram bot
-    start_bot()
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=True)
