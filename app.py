@@ -54,7 +54,7 @@ def fetch_data(from_date, to_date):
             "collectionMode": "",
             "collectionOperator": "",
             "status": "",
-            "revenueWard": "Revenue Ward No  18"
+            "revenueWard": ""
         }
 
         logger.info("Making POST request to fetch collection data")
